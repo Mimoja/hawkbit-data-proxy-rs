@@ -65,6 +65,9 @@ pub type HawkbitResult<T> = std::result::Result<T, HawkbitError>;
 
 #[derive(Deserialize, Debug)]
 pub struct MgmtTarget {
+    #[serde(rename = "_links")]
+    pub links: Value,
+
     #[serde(rename = "controllerId")]
     pub controller_id: String,
     #[serde(rename = "group")]
@@ -102,6 +105,9 @@ pub struct HawkbitMgmtClient {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Action {
+    #[serde(rename = "_links")]
+    pub links: Value,
+
     #[serde(rename = "createdAt")]
     pub created_at: u64,
 
@@ -141,8 +147,6 @@ pub struct Link {
     pub href: String,
 }
 
-
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NamedLink {
     #[serde(rename = "href")]
@@ -154,7 +158,6 @@ pub struct NamedLink {
     #[serde(rename = "self")]
     pub self_link: Option<Link>,
 }
-
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HawkbitActionLinks {
@@ -228,7 +231,6 @@ pub struct ActionStatusEvent {
     pub event_type: String, // renamed because `type` is a reserved keyword
 }
 
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PaginationResponse<T> {
     pub content: T,
@@ -298,6 +300,39 @@ impl HawkbitMgmtClient {
         Ok(res.json::<T>().await?)
     }
 
+    pub async fn delete<T: DeserializeOwned>(
+        &self,
+        endpoint: &str,
+        query_params: Option<HashMap<String, String>>,
+    ) -> HawkbitResult<T> {
+        let url = self.build_url(endpoint);
+        let mut req = self
+            .client
+            .delete(&url)
+            .headers(self.default_headers.clone())
+            .basic_auth(&self.config.username, Some(&self.config.password));
+        if let Some(params) = query_params {
+            for (k, v) in params {
+                req = req.query(&[(k.to_string(), v.to_string())]);
+            }
+        }
+        let res = req.send().await?;
+
+        let status = res.status();
+        if status == StatusCode::NO_CONTENT {
+            return Ok(serde_json::from_str("{}").unwrap());
+        }
+        if status != StatusCode::OK {
+            let body = res.text().await.unwrap();
+            return Err(HawkbitError::new(format!(
+                "HTTP error {}: {}",
+                status.as_u16(),
+                body
+            )));
+        }
+
+        Ok(res.json::<T>().await?)
+    }
     pub async fn post<T: Serialize + ?Sized>(
         &self,
         endpoint: &str,
@@ -395,12 +430,15 @@ impl HawkbitMgmtClient {
         &self,
         target_id: &str,
         limit: Option<usize>,
+        filter_query: Option<&str>,
     ) -> HawkbitResult<Vec<Action>> {
         let mut query_params = HashMap::new();
 
         query_params.insert("sort".to_string(), "id:DESC".to_string());
         query_params.insert("limit".to_string(), limit.unwrap_or(10).to_string());
-
+        if let Some(filter_query) = filter_query {
+            query_params.insert("q".to_string(), filter_query.to_string());
+        }
         let endpoint = &format!("targets/{}/actions", target_id);
 
         let resp = self
@@ -427,7 +465,10 @@ impl HawkbitMgmtClient {
         let mut attributes = HashMap::new();
         if let Some(map) = response.as_object() {
             for (key, value) in map {
-                attributes.insert(key.to_string(), value.as_str().unwrap_or_default().to_string());
+                attributes.insert(
+                    key.to_string(),
+                    value.as_str().unwrap_or_default().to_string(),
+                );
             }
         }
 
@@ -444,12 +485,28 @@ impl HawkbitMgmtClient {
         self.get::<ActionDetail>(&endpoint, None).await
     }
 
+    pub async fn cancel_action(
+        &self,
+        target_id: &String,
+        action_id: &i64,
+        force: bool,
+    ) -> HawkbitResult<Value> {
+        let endpoint = &format!("/targets/{}/actions/{}", target_id, action_id.to_string());
+        let mut query_params: HashMap<String, String> = HashMap::new();
+        query_params.insert("force".to_string(), force.to_string());
+        self.delete(&endpoint, Some(query_params)).await
+    }
+
     pub async fn get_action_status(
         &self,
         target_id: &String,
         action_id: &i64,
     ) -> HawkbitResult<Vec<ActionStatusEvent>> {
-        let endpoint = &format!("/targets/{}/actions/{}/status", target_id, action_id.to_string());
+        let endpoint = &format!(
+            "/targets/{}/actions/{}/status",
+            target_id,
+            action_id.to_string()
+        );
 
         let mut offset = 0;
         let mut total = usize::MAX; // Will be overwritten on first request
@@ -480,11 +537,19 @@ impl HawkbitMgmtClient {
     pub async fn assign_distribution(
         &self,
         target_id: &str,
-        distribution_id: &str,
+        distribution_id: &i64,
     ) -> HawkbitResult<Value> {
         let endpoint = format!("targets/{}/assignedDS", target_id);
         let data = vec![json!({ "id": distribution_id, "type": "forced" })];
         self.post(&endpoint, &data).await
+    }
+
+    pub async fn get_distributionset(&self, distribution_id: &str) -> HawkbitResult<Value> {
+        let mut query_params = HashMap::new();
+        query_params.insert("sort".to_string(), "id:DESC".to_string());
+        let endpoint = &format!("/distributionsets/{}", distribution_id.to_string());
+
+        self.get::<Value>(&endpoint, Some(query_params)).await
     }
 
     pub async fn get_latest_distribution(&self) -> HawkbitResult<Value> {
