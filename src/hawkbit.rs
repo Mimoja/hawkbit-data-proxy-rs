@@ -103,7 +103,7 @@ pub struct HawkbitMgmtClient {
     default_headers: header::HeaderMap,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Action {
     #[serde(rename = "_links")]
     pub links: Value,
@@ -141,7 +141,7 @@ pub struct Action {
     pub weight: Option<u32>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Link {
     #[serde(rename = "href")]
     pub href: String,
@@ -231,6 +231,90 @@ pub struct ActionStatusEvent {
     pub event_type: String, // renamed because `type` is a reserved keyword
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SoftwareModuleLinks {
+    #[serde(rename = "self")]
+    pub self_link: Option<Link>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SoftwareModule {
+    #[serde(rename = "_links")]
+    pub links: SoftwareModuleLinks,
+
+    #[serde(rename = "createdAt")]
+    pub created_at: u64,
+
+    #[serde(rename = "createdBy")]
+    pub created_by: String,
+
+    pub deleted: bool,
+    pub encrypted: bool,
+    pub id: u64,
+
+    #[serde(rename = "lastModifiedAt")]
+    pub last_modified_at: u64,
+
+    #[serde(rename = "lastModifiedBy")]
+    pub last_modified_by: String,
+
+    pub name: String,
+
+    #[serde(rename = "type")]
+    pub module_type: String,
+
+    #[serde(rename = "typeName")]
+    pub type_name: String,
+
+    pub version: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DistributionSetLinks {
+    #[serde(rename = "self")]
+    pub self_link: Option<Link>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DistributionSet {
+    #[serde(rename = "_links")]
+    pub links: DistributionSetLinks,
+
+    pub complete: bool,
+
+    #[serde(rename = "createdAt")]
+    pub created_at: u64,
+
+    #[serde(rename = "createdBy")]
+    pub created_by: String,
+
+    pub deleted: bool,
+    pub description: String,
+    pub id: u64,
+
+    #[serde(rename = "lastModifiedAt")]
+    pub last_modified_at: u64,
+
+    #[serde(rename = "lastModifiedBy")]
+    pub last_modified_by: String,
+
+    pub modules: Vec<SoftwareModule>,
+
+    pub name: String,
+
+    #[serde(rename = "requiredMigrationStep")]
+    pub required_migration_step: bool,
+
+    #[serde(rename = "type")]
+    pub ds_type: String,
+
+    #[serde(rename = "typeName")]
+    pub type_name: String,
+
+    pub valid: bool,
+    pub version: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PaginationResponse<T> {
     pub content: T,
@@ -300,11 +384,11 @@ impl HawkbitMgmtClient {
         Ok(res.json::<T>().await?)
     }
 
-    pub async fn delete<T: DeserializeOwned>(
+    pub async fn delete(
         &self,
         endpoint: &str,
         query_params: Option<HashMap<String, String>>,
-    ) -> HawkbitResult<T> {
+    ) -> Result<String, HawkbitError> {
         let url = self.build_url(endpoint);
         let mut req = self
             .client
@@ -320,7 +404,7 @@ impl HawkbitMgmtClient {
 
         let status = res.status();
         if status == StatusCode::NO_CONTENT {
-            return Ok(serde_json::from_str("{}").unwrap());
+            return Ok("No Content".to_string());
         }
         if status != StatusCode::OK {
             let body = res.text().await.unwrap();
@@ -331,7 +415,7 @@ impl HawkbitMgmtClient {
             )));
         }
 
-        Ok(res.json::<T>().await?)
+        Ok("OK".to_string())
     }
     pub async fn post<T: Serialize + ?Sized>(
         &self,
@@ -426,6 +510,11 @@ impl HawkbitMgmtClient {
         self.get::<MgmtTarget>(endpoint, None).await
     }
 
+    pub async fn delete_target(&self, target_id: &str) -> HawkbitResult<String> {
+        let endpoint = &format!("targets/{}", target_id);
+        self.delete(endpoint, None).await
+    }
+
     pub async fn get_target_actions(
         &self,
         target_id: &str,
@@ -490,7 +579,7 @@ impl HawkbitMgmtClient {
         target_id: &String,
         action_id: &i64,
         force: bool,
-    ) -> HawkbitResult<Value> {
+    ) -> HawkbitResult<String> {
         let endpoint = &format!("/targets/{}/actions/{}", target_id, action_id.to_string());
         let mut query_params: HashMap<String, String> = HashMap::new();
         query_params.insert("force".to_string(), force.to_string());
@@ -537,12 +626,42 @@ impl HawkbitMgmtClient {
     pub async fn assign_distribution(
         &self,
         target_id: &str,
-        distribution_id: &i64,
+        distribution_id: &u64,
     ) -> HawkbitResult<Value> {
         let endpoint = format!("targets/{}/assignedDS", target_id);
         let data = vec![json!({ "id": distribution_id, "type": "forced" })];
         self.post(&endpoint, &data).await
     }
+
+
+    pub async fn get_distribution_sets(&self, filter_query: Option<&str>) -> HawkbitResult<Vec<DistributionSet>> {
+        let mut offset = 0;
+        let mut total = usize::MAX; // Will be overwritten on first request
+        let mut distribution_sets = Vec::new();
+        while offset < total {
+            // Construct query parameters for pagination and filtering
+            let mut query_params = HashMap::new();
+            if let Some(filter) = filter_query {
+                query_params.insert("q".to_string(), filter.to_string());
+            }
+            query_params.insert("offset".to_string(), offset.to_string());
+            query_params.insert("limit".to_string(), 50.to_string());
+
+            let new_page = self
+                .get::<PaginationResponse<Vec<DistributionSet>>>("/distributionsets?sort=createdAt:DESC", Some(query_params))
+                .await?;
+
+            total = new_page.total;
+            distribution_sets.extend(new_page.content);
+            if new_page.size == 0 {
+                break;
+            }
+
+            offset += new_page.size;
+        }
+        Ok(distribution_sets)
+    }
+
 
     pub async fn get_distributionset(&self, distribution_id: &str) -> HawkbitResult<Value> {
         let mut query_params = HashMap::new();
