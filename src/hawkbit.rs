@@ -515,6 +515,18 @@ impl HawkbitMgmtClient {
         self.delete(endpoint, None).await
     }
 
+    pub async fn modify_target(&self, target_id: &str, json_data: Value) -> HawkbitResult<Value> {
+        let endpoint = &format!("targets/{}", target_id);
+        self.put::<Value>(endpoint, &json_data)
+            .await?
+            .ok_or_else(|| HawkbitError::new("No response from modify_target"))
+    }
+    pub async fn target_request_attributes(&self, target_id: &str) -> HawkbitResult<Value> {
+        let data =
+            json!({ "name": target_id, "controllerId": target_id, "requestAttributes": true });
+        self.modify_target(target_id, data).await
+    }
+
     pub async fn get_target_actions(
         &self,
         target_id: &str,
@@ -633,8 +645,10 @@ impl HawkbitMgmtClient {
         self.post(&endpoint, &data).await
     }
 
-
-    pub async fn get_distribution_sets(&self, filter_query: Option<&str>) -> HawkbitResult<Vec<DistributionSet>> {
+    pub async fn get_distribution_sets(
+        &self,
+        filter_query: Option<&str>,
+    ) -> HawkbitResult<Vec<DistributionSet>> {
         let mut offset = 0;
         let mut total = usize::MAX; // Will be overwritten on first request
         let mut distribution_sets = Vec::new();
@@ -648,7 +662,10 @@ impl HawkbitMgmtClient {
             query_params.insert("limit".to_string(), 50.to_string());
 
             let new_page = self
-                .get::<PaginationResponse<Vec<DistributionSet>>>("/distributionsets?sort=createdAt:DESC", Some(query_params))
+                .get::<PaginationResponse<Vec<DistributionSet>>>(
+                    "/distributionsets?sort=createdAt:DESC",
+                    Some(query_params),
+                )
                 .await?;
 
             total = new_page.total;
@@ -661,7 +678,6 @@ impl HawkbitMgmtClient {
         }
         Ok(distribution_sets)
     }
-
 
     pub async fn get_distributionset(&self, distribution_id: &str) -> HawkbitResult<Value> {
         let mut query_params = HashMap::new();

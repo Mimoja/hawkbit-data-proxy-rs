@@ -8,6 +8,40 @@ use tracing_subscriber;
 
 use crate::hawkbit::DistributionSet;
 
+// #[tokio::main]
+// async fn main() {
+//     // tracing_subscriber::fmt()
+//     //     .with_max_level(tracing::Level::DEBUG)
+//     //     .init();
+//     let config = HawkbitConfig::from_env();
+//     let client = hawkbit::HawkbitMgmtClient::from_config(&config);
+
+//     let targets = client
+//         .get_targets(Some("attribute.update_channel != attribute.build_channel"))
+//         .await
+//         .unwrap();
+//     println!(
+//         "Targets with mismatched update/build channels: {:?}",
+//         targets.len()
+//     );
+//     for target in &targets {
+//         let attributes = client
+//             .get_target_attributes(&target.controller_id, None)
+//             .await
+//             .unwrap();
+//         if attributes.get("update_channel").unwrap_or(&"".to_owned())
+//             != attributes.get("build_channel").unwrap_or(&"".to_owned())
+//         {
+//             println!(
+//                 "Target: {:?} {:?} v {:?}",
+//                 target.controller_id,
+//                 attributes.get("update_channel").unwrap_or(&"".to_owned()),
+//                 attributes.get("build_channel").unwrap_or(&"".to_owned())
+//             );
+//         }
+//     }
+// }
+
 #[tokio::main]
 async fn main() {
     let config = HawkbitConfig::from_env();
@@ -18,10 +52,10 @@ async fn main() {
         let name = set.name.clone();
         if dist_sets_lookup.contains_key(&name) {
             if dist_sets_lookup.get(&name).unwrap().created_at >= set.created_at {
-                println!(
-                    "Skipping older distribution set: {:?} {:?}",
-                    name, set.created_at
-                );
+                // println!(
+                //     "Skipping older distribution set: {:?} {:?}",
+                //     name, set.created_at
+                // );
                 continue;
             } else {
                 println!(
@@ -38,7 +72,7 @@ async fn main() {
     //     .with_max_level(tracing::Level::DEBUG)
     //     .init();
 
-    let targets = client.get_targets(None).await.unwrap();
+    let targets = client.get_targets(Some("updatestatus == \"error\"")).await.unwrap();
 
     // let controller_id =   "meticulousAcidicWhippedTopping-000022".to_string();
 
@@ -55,6 +89,7 @@ async fn main() {
         //     continue;
         // }
         println!("Target: {:?}", target.controller_id);
+        client.target_request_attributes(target.controller_id.as_str()).await.unwrap();
 
         let is_sn_unset = target.controller_id.contains("-999");
         if is_sn_unset {
@@ -212,14 +247,14 @@ async fn main() {
             controllers.len()
         );
     }
-    println!(
-        "Factory machines that we are going to delete: {:?}",
-        factory_machines.len()
-    );
-    for target_to_delete in &factory_machines {
-        println!("Target to delete: {:?}", target_to_delete);
-        client.delete_target(target_to_delete).await.unwrap();
-    }
+    // println!(
+    //     "Factory machines that we are going to delete: {:?}",
+    //     factory_machines.len()
+    // );
+    // for target_to_delete in &factory_machines {
+    //     println!("Target to delete: {:?}", target_to_delete);
+    //     client.delete_target(target_to_delete).await.unwrap();
+    // }
     let targets = client.get_targets(None).await.unwrap();
     println!("Remaining targets after deletion: {:?}", targets.len());
 }
