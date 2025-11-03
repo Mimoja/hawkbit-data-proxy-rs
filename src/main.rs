@@ -72,7 +72,10 @@ async fn main() {
     //     .with_max_level(tracing::Level::DEBUG)
     //     .init();
 
-    let targets = client.get_targets(Some("updatestatus == \"error\"")).await.unwrap();
+    let targets = client
+        .get_targets(Some("updatestatus == \"error\""))
+        .await
+        .unwrap();
 
     // let controller_id =   "meticulousAcidicWhippedTopping-000022".to_string();
 
@@ -89,7 +92,10 @@ async fn main() {
         //     continue;
         // }
         println!("Target: {:?}", target.controller_id);
-        client.target_request_attributes(target.controller_id.as_str()).await.unwrap();
+        client
+            .target_request_attributes(target.controller_id.as_str())
+            .await
+            .unwrap();
 
         let is_sn_unset = target.controller_id.contains("-999");
         if is_sn_unset {
@@ -202,11 +208,20 @@ async fn main() {
                     controller_id, dist_set.id, dist_set.name
                 );
 
-                client
+                match (client
                     .assign_distribution(&controller_id, &dist_set.id)
-                    .await
-                    .unwrap();
-                println!("Reassigned distribution set");
+                    .await)
+                {
+                    Ok(_) => {
+                        println!("Reassigned distribution set");
+                    }
+                    Err(e) => {
+                        println!(
+                            "Error reassigning distribution set to target {:?}: {:?}",
+                            controller_id, e
+                        );
+                    }
+                }
             }
         }
 
