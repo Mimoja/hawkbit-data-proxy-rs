@@ -1,7 +1,10 @@
 mod hawkbit;
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    time::{Duration, UNIX_EPOCH},
+};
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use hawkbit::HawkbitConfig;
 
 use tracing_subscriber;
@@ -41,6 +44,38 @@ use crate::hawkbit::DistributionSet;
 //         }
 //     }
 // }
+
+async fn print_actions(controller_id: &String, client: &hawkbit::HawkbitMgmtClient) {
+    let attributes = client
+        .get_target_attributes(&controller_id, None)
+        .await
+        .unwrap();
+    println!("Attributes: {:?}\n\n", attributes);
+    let actions = client
+        .get_target_actions(&controller_id, Some(5), None)
+        .await
+        .unwrap();
+    println!("Actions: {:?}\n\n", actions);
+
+    let first_action = actions.first().unwrap();
+    println!("First action: {:?}\n\n", first_action);
+
+    for action in &actions {
+        let action_details = client
+            .get_action_detail(&controller_id, &action.id)
+            .await
+            .unwrap();
+        println!("Action details: {:?}\n\n", action_details);
+    }
+
+    let action_status = client
+        .get_action_status(&controller_id, &first_action.id)
+        .await
+        .unwrap();
+    for status in action_status {
+        println!("{}: {:?}", status.event_type, status.messages);
+    }
+}
 
 #[tokio::main]
 async fn main() {
@@ -83,79 +118,24 @@ async fn main() {
     // println!("Target: {:?}\n\n", target);
     let mut factory_machines = Vec::new();
     let mut canceled_actions: Vec<hawkbit::Action> = Vec::new();
-    let mut status_map: HashMap<&String, Vec<&String>> = HashMap::new();
     let mut last_seen_map = HashMap::new();
 
     for target in &targets {
         // println!("Target: {:?}", target.controller_id);
-        // if (target.controller_id != "meticulousDarkPumpkinSpiceLatteREL21Q-000021") {
-        //     continue;
-        // }
+        if (target.controller_id == "meticulousDarkPumpkinSpiceLatteREL21Q-000021") {
+            continue;
+        }
         println!("Target: {:?}", target.controller_id);
         client
             .target_request_attributes(target.controller_id.as_str())
             .await
             .unwrap();
 
-        let is_sn_unset = target.controller_id.contains("-999");
-        if is_sn_unset {
-            factory_machines.push(target.controller_id.clone());
-        }
-        if let Some(last_seen) = target.last_controller_request_at {
-            let now_ts = Utc::now().timestamp();
-            let last_ts = last_seen / 1000;
-            let bucket = if last_ts >= now_ts - 24 * 3600 {
-                "today"
-            } else if last_ts >= now_ts - 3 * 24 * 3600 {
-                "last_3_days"
-            } else if last_ts >= now_ts - 7 * 24 * 3600 {
-                "last_week"
-            } else if last_ts >= now_ts - 14 * 24 * 3600 {
-                "last_2_weeks"
-            } else if last_ts >= now_ts - 30 * 24 * 3600 {
-                "last_month"
-            } else if last_ts >= now_ts - 90 * 24 * 3600 {
-                "last_3_months"
-            } else if last_ts >= now_ts - 180 * 24 * 3600 {
-                "last_6_months"
-            } else {
-                "longer"
-            };
-            let entry = last_seen_map.entry(bucket).or_insert(Vec::new());
-            entry.push(&target.controller_id);
-        }
-
         // println!("Full target: {:?}", target);
         let controller_id = &target.controller_id;
         let status = &target.update_status;
 
-        // let actions = client
-        //     .get_target_actions(&controller_id, Some(5), None)
-        //     .await
-        //     .unwrap();
-        // println!("Actions: {:?}\n\n", actions);
-
-        // let first_action = actions.first().unwrap();
-        // println!("First action: {:?}\n\n", first_action);
-
-        // for action in &actions {
-        //     let action_details = client
-        //         .get_action_detail(&controller_id, &action.id)
-        //         .await
-        //         .unwrap();
-        //     println!("Action details: {:?}\n\n", action_details);
-        // }
-
-        // let action_status = client
-        //     .get_action_status(&controller_id, &first_action.id)
-        //     .await
-        //     .unwrap();
-        // for status in action_status {
-        //     println!("{}: {:?}", status.event_type, status.messages);
-        // }
         if let Some(s) = status {
-            let entry = status_map.entry(s).or_insert(Vec::new());
-            entry.push(&target.controller_id);
             // let attributes = client
             //     .get_target_attributes(&controller_id, None)
             //     .await
@@ -248,11 +228,70 @@ async fn main() {
             }
         }
     }
-    println!("\n\nStatus summary:");
-    for (status, controllers) in &status_map {
-        println!("{}:{:?}", status, controllers.len());
+    let error_count = targets.len();
+    let success_targets = client
+        .get_targets(Some("updatestatus == \"in_sync\""))
+        .await
+        .unwrap();
+    let success_count = success_targets.len();
+    let pending_targets = client
+        .get_targets(Some("updatestatus == \"pending\""))
+        .await
+        .unwrap();
+    let pending_count = pending_targets.len();
+    let all_targets = client.get_targets(None).await.unwrap();
+    for target in &all_targets {
+        // if target.controller_id.contains("XYZ") {
+        //     let d = UNIX_EPOCH + Duration::from_secs(TryInto::<u64>::try_into(target.last_controller_request_at.unwrap()).unwrap() / 1000);
+        //     let datetime = DateTime::<Utc>::from(d);
+        //     let timestamp_str = datetime.format("%Y-%m-%d %H:%M:%S.%f '%Z'").to_string();
+        //     println!("[{}]: Last seen: {}", &target.controller_id, timestamp_str);
+        //     print_actions(&target.controller_id, &client).await;
+        // }
+
+        if let Some(last_seen) = target.last_controller_request_at {
+            let now_ts = Utc::now().timestamp();
+            let last_ts = last_seen / 1000;
+            let bucket = if last_ts >= now_ts - 24 * 3600 {
+                "today"
+            } else if last_ts >= now_ts - 3 * 24 * 3600 {
+                "last_3_days"
+            } else if last_ts >= now_ts - 7 * 24 * 3600 {
+                "last_week"
+            } else if last_ts >= now_ts - 14 * 24 * 3600 {
+                "last_2_weeks"
+            } else if last_ts >= now_ts - 30 * 24 * 3600 {
+                "last_month"
+            } else if last_ts >= now_ts - 90 * 24 * 3600 {
+                "last_3_months"
+            } else if last_ts >= now_ts - 180 * 24 * 3600 {
+                "last_6_months"
+            } else {
+                "longer"
+            };
+
+            let entry = last_seen_map.entry(bucket).or_insert(Vec::new());
+            entry.push(&target.controller_id);
+            // println!("  [{}] status={}", target.controller_id, target.update_status.clone().unwrap_or("default".to_string()));
+            let is_sn_unset = target.controller_id.contains("-999");
+            // Delete factory machines that have never connected or connected within last 3 days
+            if is_sn_unset && last_ts <= now_ts - 3 * 24 * 3600 {
+                factory_machines.push(target.controller_id.clone());
+            }
+        }
     }
-    println!("Error targets: {:?}", &status_map.get(&"error".to_string()));
+    println!("\n\nStatus summary:");
+    println!("pending:{:?}", pending_count);
+    println!("error:{:?}", error_count);
+    println!("in_sync:{:?}", success_count);
+
+    println!(
+        "Error targets: {:?}",
+        &targets
+            .iter()
+            .map(|f| { f.controller_id.clone() })
+            .collect::<Vec<_>>()
+    );
     println!("Canceled actions: {:?}", canceled_actions.len());
 
     for (last_seen, controllers) in &last_seen_map {
@@ -261,15 +300,18 @@ async fn main() {
             last_seen,
             controllers.len()
         );
+        // for controller in controllers {
+        //     println!("  Controller: {:?}", controller);
+        // }
     }
-    // println!(
-    //     "Factory machines that we are going to delete: {:?}",
-    //     factory_machines.len()
-    // );
-    // for target_to_delete in &factory_machines {
-    //     println!("Target to delete: {:?}", target_to_delete);
-    //     client.delete_target(target_to_delete).await.unwrap();
-    // }
+    println!(
+        "Factory machines that we are going to delete: {:?}",
+        factory_machines.len()
+    );
+    for target_to_delete in &factory_machines {
+        println!("Target to delete: {:?}", target_to_delete);
+        client.delete_target(target_to_delete).await.unwrap();
+    }
     let targets = client.get_targets(None).await.unwrap();
     println!("Remaining targets after deletion: {:?}", targets.len());
 }
