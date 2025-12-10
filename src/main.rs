@@ -46,10 +46,15 @@ use crate::hawkbit::DistributionSet;
 // }
 
 async fn print_actions(controller_id: &String, client: &hawkbit::HawkbitMgmtClient) {
-    let attributes = client
-        .get_target_attributes(&controller_id, None)
-        .await
-        .unwrap();
+    let attributes = client.get_target_attributes(&controller_id, None).await;
+    if attributes.is_err() {
+        println!(
+            "Failed to get attributes for controller: {:?}",
+            controller_id
+        );
+        return;
+    }
+    let attributes = attributes.unwrap();
     println!("Attributes: {:?}\n\n", attributes);
     let actions = client
         .get_target_actions(&controller_id, Some(5), None)
@@ -123,13 +128,17 @@ async fn main() {
     for target in &targets {
         // println!("Target: {:?}", target.controller_id);
         if (target.controller_id == "meticulousDarkPumpkinSpiceLatteREL21Q-000021") {
+            client
+                .delete_target(target.controller_id.as_str())
+                .await
+                .unwrap();
+            println!(
+                "Deleted target {:?} due to known issue",
+                target.controller_id
+            );
             continue;
         }
         println!("Target: {:?}", target.controller_id);
-        client
-            .target_request_attributes(target.controller_id.as_str())
-            .await
-            .unwrap();
 
         // println!("Full target: {:?}", target);
         let controller_id = &target.controller_id;
@@ -248,6 +257,12 @@ async fn main() {
         //     println!("[{}]: Last seen: {}", &target.controller_id, timestamp_str);
         //     print_actions(&target.controller_id, &client).await;
         // }
+
+        // println!("Requesting attributes for target: {:?}", target.controller_id);
+        // client
+        //     .target_request_attributes(target.controller_id.as_str())
+        //     .await
+        //     .unwrap();
 
         if let Some(last_seen) = target.last_controller_request_at {
             let now_ts = Utc::now().timestamp();
