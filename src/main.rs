@@ -107,11 +107,14 @@ async fn main() {
     //     .with_max_level(tracing::Level::DEBUG)
     //     .init();
 
-    let targets = client
-        .get_targets(Some("updatestatus == \"error\""))
+    // let targets = client
+    //     .get_targets(Some("updatestatus == \"error\""))
+    //     .await
+    //     .unwrap();
+        let targets: Vec<hawkbit::MgmtTarget> = client
+        .get_targets(None)
         .await
         .unwrap();
-
     // let controller_id =   "meticulousAcidicWhippedTopping-000022".to_string();
 
     // let target = client.get_target(&controller_id).await.unwrap();
@@ -119,6 +122,7 @@ async fn main() {
     let mut factory_machines = Vec::new();
     let mut canceled_actions: Vec<hawkbit::Action> = Vec::new();
     let mut last_seen_map = HashMap::new();
+    println!("Error targets count: {:?}", targets.len());
 
     for target in &targets {
         // println!("Target: {:?}", target.controller_id);
@@ -154,11 +158,11 @@ async fn main() {
                     .get_target_actions(&controller_id, Some(1), None)
                     .await
                     .unwrap();
-                // let action_details = client
-                //     .get_action_detail(&controller_id, &last_action[0].id)
-                //     .await
-                //     .unwrap();
-                // println!("Last action details: {:?}\n", action_details);
+                let action_details = client
+                    .get_action_detail(&controller_id, &last_action[0].id)
+                    .await
+                    .unwrap();
+                println!("Last action details: {:?}\n", action_details);
                 let action_status = client
                     .get_action_status(&controller_id, &last_action[0].id)
                     .await
@@ -214,6 +218,13 @@ async fn main() {
             if action.action_type != "update" {
                 continue;
             }
+            if ((action.status == "pending" || action.status == "updating")) {
+                println!("Should cancel action: {:?}", action);
+                client
+                    .cancel_action(&controller_id, &action.id, false)
+                    .await
+                    .unwrap();
+            }
             if !has_active && (action.status == "pending" || action.status == "updating") {
                 has_active = true;
                 continue;
@@ -241,13 +252,13 @@ async fn main() {
     let pending_count = pending_targets.len();
     let all_targets = client.get_targets(None).await.unwrap();
     for target in &all_targets {
-        // if target.controller_id.contains("XYZ") {
-        //     let d = UNIX_EPOCH + Duration::from_secs(TryInto::<u64>::try_into(target.last_controller_request_at.unwrap()).unwrap() / 1000);
-        //     let datetime = DateTime::<Utc>::from(d);
-        //     let timestamp_str = datetime.format("%Y-%m-%d %H:%M:%S.%f '%Z'").to_string();
-        //     println!("[{}]: Last seen: {}", &target.controller_id, timestamp_str);
-        //     print_actions(&target.controller_id, &client).await;
-        // }
+        if target.controller_id.contains("01632") {
+            let d = UNIX_EPOCH + Duration::from_secs(TryInto::<u64>::try_into(target.last_controller_request_at.unwrap()).unwrap() / 1000);
+            let datetime = DateTime::<Utc>::from(d);
+            let timestamp_str = datetime.format("%Y-%m-%d %H:%M:%S.%f '%Z'").to_string();
+            println!("[{}]: Last seen: {}", &target.controller_id, timestamp_str);
+            print_actions(&target.controller_id, &client).await;
+        }
 
         if let Some(last_seen) = target.last_controller_request_at {
             let now_ts = Utc::now().timestamp();
