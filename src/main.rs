@@ -113,7 +113,9 @@ async fn main() {
     //     .init();
 
     let targets = client
-        .get_targets(Some("updatestatus == \"error\""))
+        .get_targets(Some(
+            "updatestatus == \"error\" or updatestatus == \"registered\"",
+        ))
         .await
         .unwrap();
 
@@ -150,30 +152,31 @@ async fn main() {
             //     .await
             //     .unwrap();
             // println!("Attributes: {:?}\n\n", attributes);
-
-            if s == "error" {
-                println!("Error target: {:?}", target);
+            if s == "error" || s == "registered" {
+                println!("Reassign target: {:?}", target);
                 let attributes = client
                     .get_target_attributes(&controller_id, None)
                     .await
                     .unwrap();
                 println!("Attributes: {:?}\n\n", attributes);
                 let update_channel = attributes.get("update_channel").unwrap();
-                let last_action: Vec<hawkbit::Action> = client
-                    .get_target_actions(&controller_id, Some(1), None)
-                    .await
-                    .unwrap();
-                // let action_details = client
-                //     .get_action_detail(&controller_id, &last_action[0].id)
-                //     .await
-                //     .unwrap();
-                // println!("Last action details: {:?}\n", action_details);
-                let action_status = client
-                    .get_action_status(&controller_id, &last_action[0].id)
-                    .await
-                    .unwrap();
-                for status in action_status {
-                    println!("{}: {:?}", status.event_type, status.messages);
+                if s == "error" {
+                    let last_action: Vec<hawkbit::Action> = client
+                        .get_target_actions(&controller_id, Some(1), None)
+                        .await
+                        .unwrap();
+                    // let action_details = client
+                    //     .get_action_detail(&controller_id, &last_action[0].id)
+                    //     .await
+                    //     .unwrap();
+                    // println!("Last action details: {:?}\n", action_details);
+                    let action_status = client
+                        .get_action_status(&controller_id, &last_action[0].id)
+                        .await
+                        .unwrap();
+                    for status in action_status {
+                        println!("{}: {:?}", status.event_type, status.messages);
+                    }
                 }
                 println!("Update channel: {:?}", update_channel);
                 let dist_set_name = update_channel.to_owned() + " EMMC";
@@ -258,7 +261,10 @@ async fn main() {
         //     print_actions(&target.controller_id, &client).await;
         // }
 
-        println!("Requesting attributes for target: {:?}", target.controller_id);
+        println!(
+            "Requesting attributes for target: {:?}",
+            target.controller_id
+        );
         client
             .target_request_attributes(target.controller_id.as_str())
             .await
