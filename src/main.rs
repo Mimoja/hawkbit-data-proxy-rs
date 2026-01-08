@@ -258,11 +258,11 @@ async fn main() {
         //     print_actions(&target.controller_id, &client).await;
         // }
 
-        // println!("Requesting attributes for target: {:?}", target.controller_id);
-        // client
-        //     .target_request_attributes(target.controller_id.as_str())
-        //     .await
-        //     .unwrap();
+        println!("Requesting attributes for target: {:?}", target.controller_id);
+        client
+            .target_request_attributes(target.controller_id.as_str())
+            .await
+            .unwrap();
 
         if let Some(last_seen) = target.last_controller_request_at {
             let now_ts = Utc::now().timestamp();
