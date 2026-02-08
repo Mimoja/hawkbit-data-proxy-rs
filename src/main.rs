@@ -140,6 +140,7 @@ async fn main() {
             );
             continue;
         }
+        println!("========================================");
         println!("Target: {:?}", target.controller_id);
 
         // println!("Full target: {:?}", target);
@@ -153,31 +154,37 @@ async fn main() {
             //     .unwrap();
             // println!("Attributes: {:?}\n\n", attributes);
             if s == "error" || s == "registered" {
-                println!("Reassign target: {:?}", target);
-                let attributes = client
-                    .get_target_attributes(&controller_id, None)
-                    .await
-                    .unwrap();
-                println!("Attributes: {:?}\n\n", attributes);
-                let update_channel = attributes.get("update_channel").unwrap();
-                if s == "error" {
-                    let last_action: Vec<hawkbit::Action> = client
-                        .get_target_actions(&controller_id, Some(1), None)
-                        .await
-                        .unwrap();
-                    // let action_details = client
-                    //     .get_action_detail(&controller_id, &last_action[0].id)
-                    //     .await
-                    //     .unwrap();
-                    // println!("Last action details: {:?}\n", action_details);
-                    let action_status = client
-                        .get_action_status(&controller_id, &last_action[0].id)
-                        .await
-                        .unwrap();
-                    for status in action_status {
-                        println!("{}: {:?}", status.event_type, status.messages);
-                    }
+                // println!("Reassign target: {:?}", target);
+                let attributes = client.get_target_attributes(&controller_id, None).await;
+
+                if attributes.is_err() {
+                    println!(
+                        "Failed to get attributes for controller: {:?}",
+                        controller_id
+                    );
+                    continue;
                 }
+                let attributes = attributes.unwrap();
+                println!("Attributes: {:?}", attributes);
+                let update_channel = attributes.get("update_channel").unwrap();
+                // if s == "error" {
+                //     let last_action: Vec<hawkbit::Action> = client
+                //         .get_target_actions(&controller_id, Some(1), None)
+                //         .await
+                //         .unwrap();
+                //     let action_details = client
+                //         .get_action_detail(&controller_id, &last_action[0].id)
+                //         .await
+                //         .unwrap();
+                //     println!("Last action details: {:?}\n", action_details);
+                //     let action_status = client
+                //         .get_action_status(&controller_id, &last_action[0].id)
+                //         .await
+                //         .unwrap();
+                //     for status in action_status {
+                //         println!("{}: {:?}", status.event_type, status.messages);
+                //     }
+                // }
                 println!("Update channel: {:?}", update_channel);
                 let dist_set_name = update_channel.to_owned() + " EMMC";
                 if !dist_sets_lookup.contains_key(&dist_set_name) {
