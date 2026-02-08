@@ -272,10 +272,16 @@ async fn main() {
             "Requesting attributes for target: {:?}",
             target.controller_id
         );
-        client
+        let attr_request = client
             .target_request_attributes(target.controller_id.as_str())
-            .await
-            .unwrap();
+            .await;
+        if attr_request.is_err() {
+            println!(
+                "Failed to request attributes for target {:?}: {:?}",
+                target.controller_id,
+                attr_request.err()
+            );
+        }
 
         if let Some(last_seen) = target.last_controller_request_at {
             let now_ts = Utc::now().timestamp();
